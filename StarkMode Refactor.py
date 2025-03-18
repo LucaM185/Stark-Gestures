@@ -18,6 +18,7 @@ class model():
         )
         self.pos_thumb = None
         self.pos_idx = None
+        self.hand_size = 0  # Store the hand size
     
     def findHands(self, image):
         self.results = self.hands.process(image)
@@ -26,6 +27,20 @@ class model():
         if self.results.multi_hand_landmarks:
             for hand_landmarks in self.results.multi_hand_landmarks:
                 mp.solutions.drawing_utils.draw_landmarks(image, hand_landmarks, self.mp_hands.HAND_CONNECTIONS)
+                
+                # Calculate hand size (distance from wrist to middle finger tip)
+                wrist_x = hand_landmarks.landmark[0].x * image.shape[1]
+                wrist_y = hand_landmarks.landmark[0].y * image.shape[0]
+                middle_tip_x = hand_landmarks.landmark[12].x * image.shape[1]
+                middle_tip_y = hand_landmarks.landmark[12].y * image.shape[0]
+                
+                # Compute hand size as Euclidean distance
+                self.hand_size = ((wrist_x - middle_tip_x) ** 2 + (wrist_y - middle_tip_y) ** 2) ** 0.5
+                
+                # Draw hand size for debugging
+                cv2.putText(image, f"Hand Size: {int(self.hand_size)}", (10, image.shape[0] - 30), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+                
                 # check if landmark is tip of index
                 if hand_landmarks.landmark[8].y < hand_landmarks.landmark[5].y:
                     image = cv2.circle(image, (int(hand_landmarks.landmark[8].x*image.shape[1]), int(hand_landmarks.landmark[8].y*image.shape[0])), 10, (0, 255, 0), -1)
@@ -163,6 +178,16 @@ while True:
                 mean = (pol[0]+ind[0])/2, (pol[1]+ind[1])/2 
                 dist = ((pol[0]-ind[0])**2 + (pol[1]-ind[1])**2)**0.5
 
+                # Make click threshold relative to hand size
+                # A typical ratio - adjust as needed
+                click_threshold = h.hand_size * 0.2 if h.hand_size > 0 else 50
+                
+                # Use this threshold for click detection
+                if dist < click_threshold:
+                    cv2.putText(image, f"Dist: {int(dist)}/{int(click_threshold)}", (10, image.shape[0] - 10), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                
+                # Always map and move cursor when hand is detected
                 # Cursor mapping
                 margin_x = image.shape[1] * 0.2
                 margin_y = image.shape[0] * 0.2
@@ -186,9 +211,9 @@ while True:
                     pyautogui.moveTo(prev_x, prev_y, duration=0.01, _pause=False)
                 except Exception as e:
                     print(e)
-                    
-                # Handle clicks with debouncing
-                if dist < 50:
+                
+                # Only handle clicks when fingers are close enough
+                if dist < click_threshold:
                     if previous_finger_state == "open" and (current_time - click_debounce_time > debounce_threshold):
                         # Find the historical position to click at
                         target_time = current_time - history_delay
@@ -220,7 +245,7 @@ while True:
                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                     
                     previous_finger_state = "closed"
-                elif dist > 50:
+                elif dist > click_threshold:
                     previous_finger_state = "open"
 
         # Only convert back to BGR once for display
