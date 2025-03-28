@@ -5,6 +5,37 @@ import numpy as np
 import pyautogui
 import threading
 from collections import deque  # Add this import for the position history
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+# Define the KeypointClassifier model
+class KeypointClassifier(nn.Module):
+    def __init__(self):
+        super(KeypointClassifier, self).__init__()
+        self.fc1 = nn.Linear(21*3, 512)
+        self.fc2 = nn.Linear(512, 256)
+        self.fc3 = nn.Linear(256, 128)
+        self.fc4 = nn.Linear(128, 64)
+        self.fc5 = nn.Linear(64, 2)
+
+    def forward(self, x):
+        x = x.view(-1, 21*3)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = F.relu(self.fc3(x))
+        x = F.relu(self.fc4(x))
+        x = self.fc5(x)
+        return x
+
+# Load the pre-trained model
+device = torch.device("cpu")
+try:
+    loaded_model = torch.load("/Users/lucam/Desktop/VSTest/Stark-Gestures/model.pth", map_location=device)
+    model_loaded = True
+except Exception as e:
+    print(f"Could not load model: {e}")
+    model_loaded = False
 
 class model():
     def __init__(self):
@@ -170,6 +201,24 @@ while True:
         if h.results.multi_hand_landmarks:
             # Only draw if we have hands (save processing)
             image = h.drawHands(image)
+            
+            # Get keypoints for hand gesture recognition
+            data = h.getKeypoints()
+            
+            # Use the classifier model to detect hand gestures
+            if model_loaded and len(data["hands"]) > 0:
+                for i, hand in enumerate(data["hands"]):
+                    # Convert hand keypoints to tensor and predict
+                    hand_tensor = torch.tensor(hand).view(1, 63).to(device).float()
+                    prediction = loaded_model(hand_tensor)
+                    is_closed = prediction[0][0] > 0.5
+                    
+                    # Display hand state at the top right
+                    hand_state = "Closed" if is_closed else "Open"
+                    color = (0, 255, 0) if is_closed else (0, 0, 255)
+                    cv2.putText(image, f"Hand {i+1}: {hand_state}", 
+                              (image.shape[1] - 200, 30 + i * 30),
+                              cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
             
             # Get keypoints only when we need them
             if h.pos_thumb is not None and h.pos_idx is not None:
